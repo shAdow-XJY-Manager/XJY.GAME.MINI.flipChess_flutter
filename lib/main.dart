@@ -4,20 +4,420 @@ import 'package:flutter/material.dart';
 import 'frequency/game_support.dart';
 import 'dark_chess.dart';
 
-void main()=>runApp(const MyApp());
-class MyApp extends StatelessWidget{const MyApp({super.key});@override Widget build(BuildContext context)=>MaterialApp(debugShowCheckedModeBanner:false,title:'暗棋 · 频率游戏',theme:FrequencyTheme.dark(),home:const DarkChessPage());}
-class DarkChessPage extends StatefulWidget{const DarkChessPage({super.key});@override State<DarkChessPage> createState()=>_DarkState();}
-class _DarkState extends State<DarkChessPage>{
-  DarkChess game=DarkChess();final random=Random();Timer? timer;int? selected;int difficulty=1;bool two=false,started=false,paused=false,audio=false,thinking=false;String session=newSession(),message='首手翻子，决定双方颜色。';
-  @override void initState(){super.initState();final j=readMap('flip-chess.save');if(j!=null&&j.isNotEmpty){final g=DarkChess.fromJson(objectMap(j['game']));if(g==null){invalidSave();}if(g!=null&&g.result==null){game=g;session=(j['session'] is String) ? j['session'] as String : newSession();two=j['two']==true;difficulty=((j['difficulty'] is int) ? j['difficulty'] as int : 1).clamp(0,2).toInt();message='发现未完成对局，继续探索暗子。';}}}
-  @override void dispose(){timer?.cancel();super.dispose();}
-  void persist(){saveMap('flip-chess.save',{'game':game.toJson(),'session':session,'two':two,'difficulty':difficulty,'finished':game.result!=null});}
-  void reset([bool active=true]){timer?.cancel();setState((){game=DarkChess();selected=null;started=active;thinking=false;session=newSession();message='首手翻子，决定双方颜色。';});persist();}
-  void finish(){if(game.result!=null){recordResult('flip-chess',session,game.result!,'${game.history.length} 步 · ${two?'双人':['入门','标准','挑战'][difficulty]}');sound(audio,1);}}
-  void act(DarkMove move){if(!game.apply(move))return;setState((){selected=null;message=game.result??game.history.last;});sound(audio);persist();finish();queue();}
-  void tap(int i){if(!started||paused||thinking||game.result!=null||(!two&&game.player!=0))return;final p=game.board[i];if(p!=null&&!p.revealed){act(DarkMove(i,i));return;}if(selected!=null&&game.legal.contains(DarkMove(selected!,i))){act(DarkMove(selected!,i));return;}setState((){if(p!=null&&p.color==game.color){selected=selected==i?null:i;message=selected==null?'选择已取消。':'已选${p.name}，标记处可以移动或吃子。';}else if(selected!=null){message=game.explainIllegal(selected!,i);}else{message=p==null?'先选择己方明子。':'这是对方的棋子。';}});}
-  void queue(){timer?.cancel();if(!started||paused||two||game.player==0||game.result!=null)return;setState(()=>thinking=true);timer=Timer(const Duration(milliseconds:400),(){if(!mounted||paused)return;final action=game.choose(difficulty,random);final capture=!action.flip&&game.board[action.to]!=null;game.apply(action);setState((){thinking=false;message=game.result??'电脑：${action.flip?'按公开剩余分布选择翻子':capture?'考虑吃子与交换收益':'平衡行动空间与下一手威胁'}。${game.history.last}';});sound(audio);persist();finish();});}
-  @override Widget build(BuildContext context){final targets=selected==null?<int>{}:game.legal.where((m)=>!m.flip&&m.from==selected).map((m)=>m.to).toSet();final red=game.board.where((p)=>p?.color==0).length,black=game.board.where((p)=>p?.color==1).length;
-    return GameFrame(title:'暗棋',subtitle:'03 / 隐藏信息 · 4 × 8 中国暗棋',gameId:'flip-chess',playing:started&&game.result==null,onExit:persist,onRestart:reset,onRules:()=>rulesDialog(context,'32 枚棋子全部盖面，先手翻开第一子后归属其颜色，双方每回合翻一子或走一步。所有棋子上下左右移动一格到空格。\n\n强弱：帅将 > 士 > 象 > 车 > 马 > 炮 > 兵卒；普通明子可吃同级或更弱敌子。将帅不能吃兵卒，兵卒可吃将帅。炮吃子必须同行或同列隔恰好一枚炮架；炮架可明可暗，目标必须为明敌子。炮不能直接相邻吃子。\n\n没有合法动作或全部己子被吃时失败。吃将帅不会立即结束。40 个半回合没有翻面或吃子、同局面及行棋方第三次出现判和。\n\n入门随机；标准平衡吃子、受威胁与可走空间；挑战提高下一回合威胁权重。所有电脑策略只能看到公开信息，不读取暗子身份。\n\n方向键移动棋盘焦点，Enter/Space 选择、翻面或走子；Esc 暂停。'),onPause:(v){paused=v;timer?.cancel();setState(()=>thinking=false);if(!v)queue();},onSound:(v)=>audio=v,child:splitBoard(context,started,Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:480),child:panel(KeyboardBoard(columns:4,count:32,cell:(i,node){final p=game.board[i],hidden=p!=null&&!p.revealed;final active=selected==i,legal=targets.contains(i);return Semantics(label:'${game.square(i)}，${p==null?(legal?'可移空格':'空格'):hidden?'盖面，可翻':p.color==0?'红${p.name}':'黑${p.name}'}',child:OutlinedButton(focusNode:node,onPressed:started&&!thinking&&game.result==null?()=>tap(i):null,style:OutlinedButton.styleFrom(padding:EdgeInsets.zero,backgroundColor:active?FrequencyPalette.selected:hidden?FrequencyPalette.elevated:FrequencyPalette.background,side:BorderSide(color:active||legal?FrequencyPalette.accent:FrequencyPalette.border,width:active||legal?2:1),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(8))),child:hidden?const Icon(Icons.help_outline,color:FrequencyPalette.amber,size:28):p==null?(legal?const Icon(Icons.add,color:FrequencyPalette.accent):const SizedBox.shrink()):FittedBox(fit:BoxFit.scaleDown,child:Column(mainAxisSize:MainAxisSize.min,mainAxisAlignment:MainAxisAlignment.center,children:[Text(p.name,style:TextStyle(fontSize:28,height:1,fontWeight:FontWeight.w800,color:p.color==0?FrequencyPalette.amber:FrequencyPalette.text)),Text(p.color==0?'红':'黑',style:const TextStyle(fontSize:14,height:1,color:FrequencyPalette.muted)),if(legal||active)Text(active?'已选':'可吃',style:const TextStyle(fontSize:14,height:1,color:FrequencyPalette.accent))]))));}),padding:const EdgeInsets.all(16)))) ,panel(Column(crossAxisAlignment:CrossAxisAlignment.start,children:[sectionTitle('翻开未知','信息有限，规则清楚。'),Wrap(spacing:24,runSpacing:12,children:[metric('当前行棋',game.result!=null?'已结算':thinking?'电脑':'玩家${game.player+1}'),metric('剩余红 / 黑','$red / $black')]),const SizedBox(height:24),statusText(message),const SizedBox(height:24),if(!started)...[Wrap(spacing:8,children:[ChoiceChip(label:const Text('人机对弈'),selected:!two,onSelected:game.history.isNotEmpty?null:(v)=>setState(()=>two=false)),ChoiceChip(label:const Text('同屏双人'),selected:two,onSelected:game.history.isNotEmpty?null:(v)=>setState(()=>two=true))]),const SizedBox(height:16),if(!two)Wrap(spacing:8,children:List.generate(3,(i)=>ChoiceChip(label:Text(['入门','标准','挑战'][i]),selected:difficulty==i,onSelected:game.history.isNotEmpty?null:(v)=>setState(()=>difficulty=i)))),const SizedBox(height:24),FilledButton.icon(onPressed:(){setState(()=>started=true);persist();queue();},icon:const Icon(Icons.play_arrow),label:Text(game.history.isEmpty?'开始翻棋':'继续对局'))]else if(game.result!=null)FilledButton.icon(onPressed:reset,icon:const Icon(Icons.restart_alt),label:const Text('再来一局'))else Text('玩家一：${game.firstColor==null?'首翻决定':game.firstColor==0?'红方':'黑方'} · 连续静步 ${game.quiet}/40',style:const TextStyle(color:FrequencyPalette.muted)),const SizedBox(height:16),TextButton(onPressed:()=>reset(false),child:const Text('切换模式')),if(game.history.isNotEmpty)...[const SizedBox(height:24),const Text('最近行棋',style:TextStyle(fontWeight:FontWeight.bold)),...game.history.reversed.take(8).map((v)=>Padding(padding:const EdgeInsets.only(top:8),child:Text(v,style:const TextStyle(color:FrequencyPalette.muted))))],if(game.captured.isNotEmpty)...[const SizedBox(height:24),const Text('已吃棋子'),const SizedBox(height:8),Text(game.captured.map((p)=>'${p.color==0?'红':'黑'}${p.name}').join(' · '))]]))));
+void main() => runApp(const MyApp());
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    debugShowCheckedModeBanner: false,
+    title: '暗棋 · 频率游戏',
+    theme: FrequencyTheme.dark(),
+    home: const DarkChessPage(),
+  );
+}
+
+class DarkChessPage extends StatefulWidget {
+  const DarkChessPage({super.key});
+  @override
+  State<DarkChessPage> createState() => _DarkState();
+}
+
+class _DarkState extends State<DarkChessPage> {
+  DarkChess game = DarkChess();
+  final random = Random();
+  Timer? timer;
+  int? selected;
+  int difficulty = 1;
+  bool two = false,
+      started = false,
+      paused = false,
+      audio = false,
+      thinking = false;
+  String session = newSession(), message = '首手翻子，决定双方颜色。';
+  @override
+  void initState() {
+    super.initState();
+    final j = readMap('flip-chess.save');
+    if (j != null && j.isNotEmpty) {
+      final g = DarkChess.fromJson(objectMap(j['game']));
+      if (g == null) {
+        invalidSave();
+      }
+      if (g != null && g.result == null) {
+        game = g;
+        session = (j['session'] is String)
+            ? j['session'] as String
+            : newSession();
+        two = j['two'] == true;
+        difficulty = ((j['difficulty'] is int) ? j['difficulty'] as int : 1)
+            .clamp(0, 2)
+            .toInt();
+        message = '发现未完成对局，继续探索暗子。';
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  void persist() {
+    saveMap('flip-chess.save', {
+      'game': game.toJson(),
+      'session': session,
+      'two': two,
+      'difficulty': difficulty,
+      'finished': game.result != null,
+    });
+  }
+
+  void reset([bool active = true]) {
+    timer?.cancel();
+    setState(() {
+      game = DarkChess();
+      selected = null;
+      started = active;
+      thinking = false;
+      session = newSession();
+      message = '首手翻子，决定双方颜色。';
+    });
+    persist();
+  }
+
+  void finish() {
+    if (game.result != null) {
+      recordResult(
+        'flip-chess',
+        session,
+        game.result!,
+        '${game.history.length} 步 · ${two ? '双人' : ['入门', '标准', '挑战'][difficulty]}',
+      );
+      sound(audio, 1);
+    }
+  }
+
+  void act(DarkMove move) {
+    if (!game.apply(move)) return;
+    setState(() {
+      selected = null;
+      message = game.result ?? game.history.last;
+    });
+    sound(audio);
+    persist();
+    finish();
+    queue();
+  }
+
+  void tap(int i) {
+    if (!started ||
+        paused ||
+        thinking ||
+        game.result != null ||
+        (!two && game.player != 0))
+      return;
+    final p = game.board[i];
+    if (p != null && !p.revealed) {
+      act(DarkMove(i, i));
+      return;
+    }
+    if (selected != null && game.legal.contains(DarkMove(selected!, i))) {
+      act(DarkMove(selected!, i));
+      return;
+    }
+    setState(() {
+      if (p != null && p.color == game.color) {
+        selected = selected == i ? null : i;
+        message = selected == null ? '选择已取消。' : '已选${p.name}，标记处可以移动或吃子。';
+      } else if (selected != null) {
+        message = game.explainIllegal(selected!, i);
+      } else {
+        message = p == null ? '先选择己方明子。' : '这是对方的棋子。';
+      }
+    });
+  }
+
+  void queue() {
+    timer?.cancel();
+    if (!started || paused || two || game.player == 0 || game.result != null)
+      return;
+    setState(() => thinking = true);
+    timer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted || paused) return;
+      final action = game.choose(difficulty, random);
+      final capture = !action.flip && game.board[action.to] != null;
+      game.apply(action);
+      setState(() {
+        thinking = false;
+        message =
+            game.result ??
+            '电脑：${action.flip
+                ? '按公开剩余分布选择翻子'
+                : capture
+                ? '考虑吃子与交换收益'
+                : '平衡行动空间与下一手威胁'}。${game.history.last}';
+      });
+      sound(audio);
+      persist();
+      finish();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final targets = selected == null
+        ? <int>{}
+        : game.legal
+              .where((m) => !m.flip && m.from == selected)
+              .map((m) => m.to)
+              .toSet();
+    final red = game.board.where((p) => p?.color == 0).length,
+        black = game.board.where((p) => p?.color == 1).length;
+    return GameFrame(
+      title: '暗棋',
+      subtitle: '03 / 隐藏信息 · 4 × 8 中国暗棋',
+      gameId: 'flip-chess',
+      playing: started && game.result == null,
+      onExit: persist,
+      onRestart: reset,
+      onRules: () => rulesDialog(
+        context,
+        '32 枚棋子全部盖面，先手翻开第一子后归属其颜色，双方每回合翻一子或走一步。所有棋子上下左右移动一格到空格。\n\n强弱：帅将 > 士 > 象 > 车 > 马 > 炮 > 兵卒；普通明子可吃同级或更弱敌子。将帅不能吃兵卒，兵卒可吃将帅。炮吃子必须同行或同列隔恰好一枚炮架；炮架可明可暗，目标必须为明敌子。炮不能直接相邻吃子。\n\n没有合法动作或全部己子被吃时失败。吃将帅不会立即结束。40 个半回合没有翻面或吃子、同局面及行棋方第三次出现判和。\n\n入门随机；标准平衡吃子、受威胁与可走空间；挑战提高下一回合威胁权重。所有电脑策略只能看到公开信息，不读取暗子身份。\n\n方向键移动棋盘焦点，Enter/Space 选择、翻面或走子；Esc 暂停。',
+      ),
+      onPause: (v) {
+        paused = v;
+        timer?.cancel();
+        setState(() => thinking = false);
+        if (!v) queue();
+      },
+      onSound: (v) => audio = v,
+      child: splitBoard(
+        context,
+        started,
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: panel(
+              KeyboardBoard(
+                columns: 4,
+                count: 32,
+                cell: (i, node) {
+                  final p = game.board[i], hidden = p != null && !p.revealed;
+                  final active = selected == i, legal = targets.contains(i);
+                  return Semantics(
+                    label:
+                        '${game.square(i)}，${p == null
+                            ? (legal ? '可移空格' : '空格')
+                            : hidden
+                            ? '盖面，可翻'
+                            : p.color == 0
+                            ? '红${p.name}'
+                            : '黑${p.name}'}',
+                    child: OutlinedButton(
+                      focusNode: node,
+                      onPressed: started && !thinking && game.result == null
+                          ? () => tap(i)
+                          : null,
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        backgroundColor: active
+                            ? FrequencyPalette.selected
+                            : hidden
+                            ? FrequencyPalette.elevated
+                            : FrequencyPalette.background,
+                        side: BorderSide(
+                          color: active || legal
+                              ? FrequencyPalette.accent
+                              : FrequencyPalette.border,
+                          width: active || legal ? 2 : 1,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: hidden
+                          ? const Icon(
+                              Icons.help_outline,
+                              color: FrequencyPalette.amber,
+                              size: 28,
+                            )
+                          : p == null
+                          ? (legal
+                                ? const Icon(
+                                    Icons.add,
+                                    color: FrequencyPalette.accent,
+                                  )
+                                : const SizedBox.shrink())
+                          : FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    p.name,
+                                    style: TextStyle(
+                                      fontSize: 28,
+                                      height: 1,
+                                      fontWeight: FontWeight.w800,
+                                      color: p.color == 0
+                                          ? FrequencyPalette.amber
+                                          : FrequencyPalette.text,
+                                    ),
+                                  ),
+                                  Text(
+                                    p.color == 0 ? '红' : '黑',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      height: 1,
+                                      color: FrequencyPalette.muted,
+                                    ),
+                                  ),
+                                  if (legal || active)
+                                    Text(
+                                      active ? '已选' : '可吃',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        height: 1,
+                                        color: FrequencyPalette.accent,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                    ),
+                  );
+                },
+              ),
+              padding: const EdgeInsets.all(16),
+            ),
+          ),
+        ),
+        panel(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              sectionTitle('翻开未知', '信息有限，规则清楚。'),
+              Wrap(
+                spacing: 24,
+                runSpacing: 12,
+                children: [
+                  metric(
+                    '当前行棋',
+                    game.result != null
+                        ? '已结算'
+                        : thinking
+                        ? '电脑'
+                        : '玩家${game.player + 1}',
+                  ),
+                  metric('剩余红 / 黑', '$red / $black'),
+                ],
+              ),
+              const SizedBox(height: 16),
+              statusText(message),
+              const SizedBox(height: 16),
+              if (!started) ...[
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('人机对弈'),
+                      selected: !two,
+                      onSelected: game.history.isNotEmpty
+                          ? null
+                          : (v) => setState(() => two = false),
+                    ),
+                    ChoiceChip(
+                      label: const Text('同屏双人'),
+                      selected: two,
+                      onSelected: game.history.isNotEmpty
+                          ? null
+                          : (v) => setState(() => two = true),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (!two)
+                  Wrap(
+                    spacing: 8,
+                    children: List.generate(
+                      3,
+                      (i) => ChoiceChip(
+                        label: Text(['入门', '标准', '挑战'][i]),
+                        selected: difficulty == i,
+                        onSelected: game.history.isNotEmpty
+                            ? null
+                            : (v) => setState(() => difficulty = i),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () {
+                    setState(() => started = true);
+                    persist();
+                    queue();
+                  },
+                  icon: const Icon(Icons.play_arrow),
+                  label: Text(game.history.isEmpty ? '开始翻棋' : '继续对局'),
+                ),
+              ] else if (game.result != null)
+                FilledButton.icon(
+                  onPressed: reset,
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('再来一局'),
+                )
+              else
+                Text(
+                  '玩家一：${game.firstColor == null
+                      ? '首翻决定'
+                      : game.firstColor == 0
+                      ? '红方'
+                      : '黑方'} · 连续静步 ${game.quiet}/40',
+                  style: const TextStyle(color: FrequencyPalette.muted),
+                ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => reset(false),
+                child: const Text('切换模式'),
+              ),
+              if (game.history.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  '最近行棋',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                ...game.history.reversed
+                    .take(8)
+                    .map(
+                      (v) => Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          v,
+                          style: const TextStyle(color: FrequencyPalette.muted),
+                        ),
+                      ),
+                    ),
+              ],
+              if (game.captured.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text('已吃棋子'),
+                const SizedBox(height: 8),
+                Text(
+                  game.captured
+                      .map((p) => '${p.color == 0 ? '红' : '黑'}${p.name}')
+                      .join(' · '),
+                ),
+              ],
+            ],
+          ),
+        ),
+        boardAspect: 0.5,
+        boardChrome: 32,
+        minimumBoardWidth: 244,
+      ),
+    );
   }
 }
