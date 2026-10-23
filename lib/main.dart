@@ -24,6 +24,7 @@ class DarkChessPage extends StatefulWidget {
 }
 
 class _DarkState extends State<DarkChessPage> {
+  final frame = GlobalKey<GameFrameState>();
   DarkChess game = DarkChess();
   final random = Random();
   Timer? timer;
@@ -165,6 +166,47 @@ class _DarkState extends State<DarkChessPage> {
     });
   }
 
+  Widget primaryAction() => FilledButton.icon(
+    onPressed: game.result != null
+        ? requestReset
+        : started
+        ? () => frame.currentState?.togglePause()
+        : () {
+            setState(() => started = true);
+            persist();
+            queue();
+          },
+    icon: Icon(
+      game.result != null
+          ? Icons.restart_alt
+          : started
+          ? Icons.pause
+          : Icons.play_arrow,
+    ),
+    label: Text(
+      game.result != null
+          ? '再来一局'
+          : started
+          ? '暂停对局'
+          : game.history.isEmpty
+          ? '开始翻棋'
+          : '继续对局',
+    ),
+  );
+
+  Future<bool> requestReset([bool active = true]) async {
+    if (frame.currentState != null &&
+        !await frame.currentState!.allowReset(
+          hasProgress:
+              game.result == null && (started || game.history.isNotEmpty),
+          action: active ? '重新开始' : '切换模式',
+        ))
+      return false;
+    if (!mounted) return false;
+    reset(active);
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final targets = selected == null
@@ -176,12 +218,13 @@ class _DarkState extends State<DarkChessPage> {
     final red = game.board.where((p) => p?.color == 0).length,
         black = game.board.where((p) => p?.color == 1).length;
     return GameFrame(
+      key: frame,
       title: '暗棋',
       subtitle: '03 / 隐藏信息 · 4 × 8 中国暗棋',
       gameId: 'flip-chess',
       playing: started && game.result == null,
       onExit: persist,
-      onRestart: reset,
+      onRestart: requestReset,
       onRules: () => rulesDialog(
         context,
         '32 枚棋子全部盖面，先手翻开第一子后归属其颜色，双方每回合翻一子或走一步。所有棋子上下左右移动一格到空格。\n\n强弱：帅将 > 士 > 象 > 车 > 马 > 炮 > 兵卒；普通明子可吃同级或更弱敌子。将帅不能吃兵卒，兵卒可吃将帅。炮吃子必须同行或同列隔恰好一枚炮架；炮架可明可暗，目标必须为明敌子。炮不能直接相邻吃子。\n\n没有合法动作或全部己子被吃时失败。吃将帅不会立即结束。40 个半回合没有翻面或吃子、同局面及行棋方第三次出现判和。\n\n入门随机；标准平衡吃子、受威胁与可走空间；挑战提高下一回合威胁权重。所有电脑策略只能看到公开信息，不读取暗子身份。\n\n方向键移动棋盘焦点，Enter/Space 选择、翻面或走子；Esc 暂停。',
@@ -327,14 +370,18 @@ class _DarkState extends State<DarkChessPage> {
                       selected: !two,
                       onSelected: game.history.isNotEmpty
                           ? null
-                          : (v) => setState(() => two = false),
+                          : (v) {
+                              if (v && two) setState(() => two = false);
+                            },
                     ),
                     ChoiceChip(
                       label: const Text('同屏双人'),
                       selected: two,
                       onSelected: game.history.isNotEmpty
                           ? null
-                          : (v) => setState(() => two = true),
+                          : (v) {
+                              if (v && !two) setState(() => two = true);
+                            },
                     ),
                   ],
                 ),
@@ -349,27 +396,18 @@ class _DarkState extends State<DarkChessPage> {
                         selected: difficulty == i,
                         onSelected: game.history.isNotEmpty
                             ? null
-                            : (v) => setState(() => difficulty = i),
+                            : (v) {
+                                if (v && difficulty != i)
+                                  setState(() => difficulty = i);
+                              },
                       ),
                     ),
                   ),
                 const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () {
-                    setState(() => started = true);
-                    persist();
-                    queue();
-                  },
-                  icon: const Icon(Icons.play_arrow),
-                  label: Text(game.history.isEmpty ? '开始翻棋' : '继续对局'),
-                ),
+                desktopGameAction(primaryAction()),
               ] else if (game.result != null)
-                FilledButton.icon(
-                  onPressed: reset,
-                  icon: const Icon(Icons.restart_alt),
-                  label: const Text('再来一局'),
-                )
-              else
+                desktopGameAction(primaryAction())
+              else if (game.result == null)
                 Text(
                   '玩家一：${game.firstColor == null
                       ? '首翻决定'
@@ -380,7 +418,9 @@ class _DarkState extends State<DarkChessPage> {
                 ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () => reset(false),
+                onPressed: () {
+                  if (started || game.history.isNotEmpty) requestReset(false);
+                },
                 child: const Text('切换模式'),
               ),
               if (game.history.isNotEmpty) ...[
@@ -414,6 +454,7 @@ class _DarkState extends State<DarkChessPage> {
             ],
           ),
         ),
+        primaryAction: primaryAction(),
         boardAspect: 0.5,
         boardChrome: 32,
         minimumBoardWidth: 244,
